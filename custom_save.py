@@ -7,6 +7,7 @@ from dotmap import DotMap
 import os
 from scipy.io import savemat
 
+# Modified save_data function from pyPPG to save additional features
 
 def save_data(savingformat: str, savingfolder: str, print_flag=True, s={}, fp=pd.DataFrame(), bm=pd.DataFrame(), gauss=None, gauss_stats=None, gauss_additional=None, skewed=None, skewed_stats=None, vpg=pd.DataFrame(), vpg_stats=pd.DataFrame() ,ppg_extra=pd.DataFrame(), ppg_extra_stats=pd.DataFrame()):
     """

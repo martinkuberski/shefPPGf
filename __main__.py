@@ -5,29 +5,33 @@ from process_signal import process_signal
 import cutie
 import os
 
-# Variables
-path = ""
-fs = 200
-start = 0
-end = -1
-fL = 0.5
-fH = 12
-order = 4
-sm_ppg=50
-sm_vpg=10
-sm_apg=10
-sm_jpg=10
-saving_format='csv'
-saving_folder='results'
-gauss = True
-gauss_live_plot = False
-g_values = [0.9, 0.2, 0.01, 2/3, 0.4, 0.01, 0.5, 0.6, 0.01, 1/3, 0.8, 0.01]
-skewed = True
-skewed_live_plot = False
-s_values = [0.08, 0.2, 1/8, 1, 0.04, 0.4, 1/8, 1, 0.04, 0.6, 1/8, 1, 0.02, 0.8, 1/8, 1]
+# This file contains the user interface of the application and servers as its starting point
 
-# Menu
+# Global variables (options)
+path = "" # Path of a file containing the PPG signal to be analysed
+fs = 200 # Sampling frequency of the PPG signal
+start = 0 # Start of the signal
+end = -1 # End of the signal (-1 for the whole signal)
+fL = 0.5 # Lower filter cutoff frequency in Hz
+fH = 12 # Higher filter cutoff frequency in Hz
+order = 4 # Filter order
+sm_ppg=50 # PPG smoothing window in ms
+sm_vpg=10 # VPG smoothing window in ms
+sm_apg=10 # APG smoothing window in ms
+sm_jpg=10 # JPG smoothing window in ms
+saving_format='csv' # Output file format ('csv', 'mat', 'both')
+saving_folder='results' # Output folder
+gauss = True # Perform Gaussian decomposition
+gauss_live_plot = False # Plot Gaussian decomposition for each pulse
+g_values = [0.9, 0.2, 0.01, 2/3, 0.4, 0.01, 0.5, 0.6, 0.01, 1/3, 0.8, 0.01] # Initial Gaussian parameters
+skewed = True # Perform skewed Gaussian decomposition
+skewed_live_plot = False # Plot skewed Gaussian decomposition for each pulse
+s_values = [0.08, 0.2, 1/8, 1, 0.04, 0.4, 1/8, 1, 0.04, 0.6, 1/8, 1, 0.02, 0.8, 1/8, 1] # Initial skewed Gaussian parameters
+
 def main():
+    '''
+    Displays a command-line interface enabling the user to adjust options.
+    '''
     # Global declarations
     global path
     global fs

@@ -1,7 +1,16 @@
 import numpy as np
 import pandas as pd
 
+# This file contains functions which process additional VPG features
+
 def sys_dia(vpg, fp):
+    '''
+    Splits VPG pulses into systolic and diastolic phases
+
+    :param vpg: VPG signal to be split
+    :param fp: Fiducials object containing the fiducial points data
+    :return: Two arrays, one containing parts of VPG pulses in systolic phase and the other in diastolic phase
+    '''
     sys_vpg = []
     dia_vpg = []
     for i in range(len(fp.on)):
@@ -13,6 +22,13 @@ def sys_dia(vpg, fp):
     return sys_vpg, dia_vpg
 
 def features(vpg, fp):
+    '''
+    Extracts additional features (mean and variance in systolic/diastolic phases) from VPG signal
+
+    :param vpg: VPG signal to be processed
+    :param fp: Fiducials object containing the fiducial points data
+    :return: A dataframe containing mean and variance of VPG pulses in systolic and diastolic phases
+    '''
     dict = {'sys_mean':[],
             'sys_var':[],
             'dia_mean':[],
@@ -28,6 +44,12 @@ def features(vpg, fp):
     return stats
 
 def stats(features):
+    '''
+    Calculates statistics for VPG features
+
+    :param features: A dataframe of VPG features
+    :return: A dataframe of VPG features statistics across all pulses
+    '''
     index = ['mean', 'median', 'std', 'percentile_25', 'percentile_75', 'iqr', 'skew', 'kurtosis', 'mad']
     dict = {"sys_mean": [],
             "sys_var": [],

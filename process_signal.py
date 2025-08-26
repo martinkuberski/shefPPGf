@@ -16,6 +16,8 @@ import vpg
 import ppg
 import skewed
 
+# This file contains functions encompassing the processing pipeline of a PPG signal, extracting the features
+
 def process_signal(path="",
                    fs=200,
                    start=0,
@@ -33,6 +35,28 @@ def process_signal(path="",
                    s_values=[0.08, 0.2, 1/8, 1, 0.04, 0.4, 1/8, 1, 0.04, 0.6, 1/8, 1, 0.02, 0.8, 1/8, 1],
                    savingformat='csv',
                    savingfolder='results'):
+    '''
+    This function is responsible for the PPG signal processing pipeline, taking signal path and configuration options as
+    parameters and saving the output to the specified folder.
+
+    :param path: Path of the input signal
+    :param fs: Sampling frequency
+    :param start: Beginning of the signal in sample
+    :param end: End of the signal in sample
+    :param fL: Lower cutoff frequency in Hz
+    :param fH: Higher cutoff frequency in Hz
+    :param order: Order of the filter to be applied
+    :param sm_wins: Smoothing windows in ms for each derivative (dictionary)
+    :param correction: DataFrame where the key is the name of the fiducial points and the value is bool
+    :param enable_gauss: Boolean value to enable Gaussian decomposition (True to enable, False to disable)
+    :param gauss_live_plot: Boolean value to display a plot of Gaussian decomposition for each pulse during processing
+    :param g_values: Initial values for Gaussian decomposition parameters
+    :param enable_skewed: Boolean value to enable Skewed Gaussian decomposition (True to enable, False to disable)
+    :param skewed_live_plot: Boolean value to display a plot of Gaussian decomposition for each pulse during processing
+    :param s_values: Initial values for Skewed Gaussian decomposition parameters
+    :param savingformat: File format for the output ('csv', 'mat', or 'both')
+    :param savingfolder: Folder in which the output will be saved
+    '''
 
     # Load a PPG signal
     signal = load_data(data_path=path, fs=fs, start_sig=start, end_sig=end)
@@ -53,12 +77,6 @@ def process_signal(path="",
 
     # Create PPG class
     s = PPG(s=signal)
-
-    # Raw data plot (debug)
-    # fig, (ax1, ax2) = plt.subplots(2, 1)
-    # ax1.plot(signal.v)
-    # ax2.plot(s.ppg)
-    # plt.show()
 
     # Get fiducial points
     fpex = FP.FpCollection(s=s)
@@ -109,6 +127,13 @@ def process_signal(path="",
     custom_save.save_data(savingformat=savingformat, savingfolder=savingfolder,s=s, fp=fp_new, bm=bm, gauss=gauss, gauss_stats=gauss_stats, gauss_additional=gauss_additional, skewed=skew, skewed_stats=skew_stats, vpg=vpg_features, vpg_stats=vpg_stats, ppg_extra=ppg_features, ppg_extra_stats=ppg_stats)
 
 def get_pulses(s, fp):
+    '''
+    Splits the signal into arrays of individual pulses.
+
+    :param s: PPG object containing the signal data
+    :param fp: Fiducials object containing the fiducial points data
+    :return: 4 arrays of individual pulses (as arrays) - PPG, VPG, APG, and JPG
+    '''
     onsets = fp.get_fp().on[1:]
     ppgPulses = np.split(s.ppg, onsets)
     vpgPulses = np.split(s.vpg, onsets)
@@ -117,26 +142,35 @@ def get_pulses(s, fp):
     return ppgPulses, vpgPulses, apgPulses, jpgPulses
 
 def make_positive(pulse):
+    '''
+    Shifts the pulse up to remove negative values.
+
+    :param pulse: Pulse to be made positive
+    :return: Pulse with negative values removed
+    '''
     if np.min(pulse) < 0:
         pulse = pulse - np.min(pulse)
     return pulse
 
 def normalise_amplitude(pulse):
+    '''
+    Normalises the amplitude of the pulse so that the maximum amplitude is 1.
+
+    :param pulse: Pulse to be normalized
+    :return: Normalized pulse
+    '''
     pulse = pulse / np.max(pulse)
     return pulse
 
 def linear_correction(pulse):
+    '''
+    Applies linear correction on the pulse to remove skew (equalises the initial and end amplitudes of the pulse).
+    :param pulse: Pulse to be corrected
+    :return: Corrected pulse
+    '''
     # Get gradient and intercept
     gradient = (pulse[-1] - pulse[0]) / (len(pulse) - 1)
     intercept = pulse[0]
-
-    # DEBUG: PLOT
-    # lin = np.zeros(len(pulse))
-    # for i in range(len(lin)):
-    #     lin[i] = gradient * i + intercept
-    # plt.plot(range(len(pulse)), pulse, color='r')
-    # plt.plot(range(len(pulse)), lin, color='b')
-    # plt.show()
 
     # Apply linear correction
     for i in range(len(pulse)):
@@ -144,6 +178,14 @@ def linear_correction(pulse):
     return pulse
 
 def get_gaussians(ppgPulses, live_plot=False, g_values=[0.9, 0.2, 0.01, 2/3, 0.4, 0.01, 0.5, 0.6, 10, 1/3, 0.8, 0.01]):
+    '''
+    Performs Gaussian decomposition on PPG pulses.
+
+    :param ppgPulses: An array of PPG pulses to be decomposed
+    :param live_plot: A boolean to enable (True) or disable (False) plot display for every pulse
+    :param g_values: Initial values of the parameters (amplitude, mean, standard deviation for 4 Gaussian functions in an array)
+    :return: A DataFrame of Gaussian parameters by pulse
+    '''
     dict = {"a1": [],
             "m1": [],
             "sd1": [],
@@ -204,6 +246,12 @@ def get_gaussians(ppgPulses, live_plot=False, g_values=[0.9, 0.2, 0.01, 2/3, 0.4
     return gaussians
 
 def gaussian_stats(gauss):
+    '''
+    Calculates statistics of Gaussian decomposition parameters across all pulses.
+
+    :param gauss: A dataframe of Gaussian parameters by pulse
+    :return: A dataframe of statistics of Gaussian parameters across all pulses
+    '''
     index = ['mean', 'median', 'std', 'percentile_25', 'percentile_75', 'iqr', 'skew', 'kurtosis', 'mad']
     dict = {"a1": [],
             "m1": [],
@@ -241,6 +289,12 @@ def gaussian_stats(gauss):
     return pd.DataFrame(dict, index=index)
 
 def additional_gauss(gauss):
+    '''
+    Calculates derived features from Gaussian decomposition.
+
+    :param gauss: A dataframe of Gaussian parameters by pulse
+    :return: A dataframe of derived features from Gaussian parameters
+    '''
     dict = {"AI": [],
             "RI": [],
             "RTT": [],
@@ -265,6 +319,14 @@ def additional_gauss(gauss):
     return additional
 
 def get_skewed(ppgPulses, live_plot=False, initials=[0.08, 0.2, 1/8, 1, 0.04, 0.4, 1/8, 1, 0.04, 0.6, 1/8, 1, 0.02, 0.8, 1/8, 1]):
+    '''
+    Performes skewed Gaussian Decomposition on PPG pulses.
+
+    :param ppgPulses: An array of PPG pulses to be decomposed
+    :param live_plot: A boolean to enable (True) or disable (False) plot display for every pulse
+    :param initials: Initial values of the parameters (amplitude, location, scale, shape for 4 skewed Gaussian functions in an array)
+    :return: A dataframe of skewed Gaussian parameters by pulse
+    '''
     dict = {"a1": [],
             "loc1": [],
             "scale1": [],
@@ -333,6 +395,12 @@ def get_skewed(ppgPulses, live_plot=False, initials=[0.08, 0.2, 1/8, 1, 0.04, 0.
     return skew
 
 def skewed_stats(skew):
+    '''
+    Calculates statistics of Gaussian decomposition parameters across all pulses.
+
+    :param skew: A dataframe of skewed Gaussian parameters by pulse
+    :return: A dataframe of statistics of skewed Gaussian parameters across all pulses
+    '''
     index = ['mean', 'median', 'std', 'percentile_25', 'percentile_75', 'iqr', 'skew', 'kurtosis', 'mad']
     dict = {"a1": [],
             "loc1": [],

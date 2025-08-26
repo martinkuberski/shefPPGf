@@ -1,7 +1,15 @@
 import pandas as pd
 from scipy.stats import skew, kurtosis
 
+# This file contains functions which process additional PPG features.
+
 def features(ppg):
+    '''
+    Extracts additional features (skeweness and kurtosis) from PPG pulses.
+
+    :param ppg: PPG signal to be processed
+    :return: A dataframe of skeweness and kurtosis by pulse
+    '''
     dict = {'Skewness': [],
             'Kurtosis': []}
     for pulse in ppg:
@@ -10,6 +18,12 @@ def features(ppg):
     return pd.DataFrame(dict)
 
 def ppg_stats(ppg_features):
+    '''
+    Calculates statistics for additional PPG features.
+
+    :param ppg_features: A dataframe of PPG features
+    :return: Statistics for additional PPG features across all pulses
+    '''
     index = ['mean', 'median', 'std', 'percentile_25', 'percentile_75', 'iqr', 'skew', 'kurtosis', 'mad']
     dict = {"Skewness": [],
             "Kurtosis": []}
