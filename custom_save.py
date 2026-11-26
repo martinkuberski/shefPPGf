@@ -34,15 +34,9 @@ def save_data(savingformat: str, savingfolder: str, print_flag=True, s={}, fp=pd
     :return: file_names: dictionary of the saved file names
     """
 
-    # Set up directories
-    savingfolder = savingfolder.replace('/', '\\')
-
-    if not(':' in savingfolder) and savingfolder[0]!='/':
-        relative_path=r'.'+os.sep
-    else:
-        relative_path=''
-
-    tmp_dir = savingfolder
+    # Honour the output path on Windows and POSIX.
+    tmp_dir = os.fspath(savingfolder)
+    relative_path = ''
     os.makedirs(tmp_dir, exist_ok=True)
 
     temp_dirs = ['Fiducial_points', 'Biomarker_vals', 'Biomarker_stats', 'Biomarker_defs', 'PPG_struct', 'Biomarker_defs_and_stats', 'Additional']
