@@ -34,7 +34,16 @@ def process_signal(path="",
                    skewed_live_plot=False,
                    s_values=[0.08, 0.2, 1/8, 1, 0.04, 0.4, 1/8, 1, 0.04, 0.6, 1/8, 1, 0.02, 0.8, 1/8, 1],
                    savingformat='csv',
-                   savingfolder='results'):
+                   savingfolder='results',
+                   apply_filter=True,
+                   use_best_window=False,
+                   best_window_sec=30.0,
+                   step_sec=1.0,
+                   min_beats_in_window=15,
+                   min_valid_sqi_fraction=0.5,
+                   min_mean_sqi=0.86,
+                   screen_pulse_lengths=False,
+                   ):
     '''
     This function is responsible for the PPG signal processing pipeline, taking signal path and configuration options as
     parameters and saving the output to the specified folder.
@@ -56,6 +65,16 @@ def process_signal(path="",
     :param s_values: Initial values for Skewed Gaussian decomposition parameters
     :param savingformat: File format for the output ('csv', 'mat', or 'both')
     :param savingfolder: Folder in which the output will be saved
+    :param apply_filter: Boolean value to apply filtering in preprocessing (True to apply, False to skip)
+    :param use_best_window: Boolean value to enable best window extraction based on SQI (True to enable, False to disable)
+    :param best_window_sec: Length of the window to be extracted in seconds (used if use_best_window is True)
+    :param step_sec: Step size for sliding the window in seconds (used if use_best_window is True)
+    :param min_beats_in_window: Minimum number of beats required in a window for it to be considered valid (used if use_best_window is True)
+    :param min_valid_sqi_fraction: Minimum fraction of valid SQI values required in a window for it to be considered valid (used if use_best_window is True)
+    :param min_mean_sqi: Minimum mean SQI value required in a window for it to be considered valid (used if use_best_window is True)
+    :param screen_pulse_lengths: Keep only 0.40–1.80 s pulses for pulse-level features and fits
+    :return: A feature dictionary and arrays of PPG onsets, systolic peaks and first-derivative fiducials.
+        The fiducial arrays are in samples relative to the analysed signal.
     '''
 
     # Load a PPG signal
@@ -63,7 +82,7 @@ def process_signal(path="",
 
     # Pre-processing - filter the signal and obtain derivatives
     prep = PP.Preprocess(fL=fL, fH=fH, order=order)
-    signal.filtering = True
+    signal.filtering = apply_filter
     signal.fL = fL
     signal.fH = fH
     signal.order = order
@@ -75,6 +94,29 @@ def process_signal(path="",
     correction.loc[0, corr_on] = True
     signal.correction = correction
 
+    # ------------------------------------
+    # Find best SQI window and crop signal
+    # ------------------------------------
+    if use_best_window:
+        best_start, best_end, best_score = find_best_window_by_sqi(
+            signal=signal,
+            fs=signal.fs,
+            best_window_sec=best_window_sec,
+            step_sec=step_sec,
+            min_beats_in_window=min_beats_in_window,
+            min_valid_sqi_fraction=min_valid_sqi_fraction,
+            min_mean_sqi=min_mean_sqi
+        )
+        # Crop the signal to the best window
+        signal.start_sig += best_start
+        signal.end_sig = signal.start_sig + (best_end - best_start)
+        # Update signal arrays to the best window
+        signal.v = signal.v[best_start:best_end]
+        signal.ppg = signal.ppg[best_start:best_end]
+        signal.vpg = signal.vpg[best_start:best_end]
+        signal.apg = signal.apg[best_start:best_end]
+        signal.jpg = signal.jpg[best_start:best_end]
+
     # Create PPG class
     s = PPG(s=signal)
 
@@ -85,7 +127,7 @@ def process_signal(path="",
     fp = Fiducials(fp=fiducials)
 
     # Split into pulses
-    ppgPulses, vpgPulses, apgPulses, jpgPulses = get_pulses(s, fp)
+    ppgPulses, vpgPulses, apgPulses, jpgPulses = get_pulses(s, fp, fs=s.fs if screen_pulse_lengths else None)
 
     if enable_gauss:
         # Gaussian decomposition
@@ -98,9 +140,14 @@ def process_signal(path="",
         gauss_additional = None
 
     if enable_skewed:
-        # Skewed Gaussian decomposition
-        skew = get_skewed(ppgPulses, live_plot=skewed_live_plot, initials=s_values)
-        skew_stats = skewed_stats(skew)
+        try:
+            # Skewed Gaussian decomposition
+            skew = get_skewed(ppgPulses, live_plot=skewed_live_plot, initials=s_values)
+            skew_stats = skewed_stats(skew)
+        except Exception as e:
+            print(f"Error in skewed Gaussian decomposition: {e}")
+            skew = None
+            skew_stats = None
     else:
         skew = None
         skew_stats = None
@@ -121,17 +168,88 @@ def process_signal(path="",
     bmex = BM.BmCollection(s=s, fp=fp)
     bm_defs, bm_vals, bm_stats = bmex.get_biomarkers()
     bm = Biomarkers(bm_defs=bm_defs, bm_vals=bm_vals, bm_stats=bm_stats)
+    signal_data = flatten_biomarker_stats(
+        bm_stats, stats_to_extract=('mean', 'std', 'iqr', 'mad', 'percentile_25', 'percentile_75', 'skew', 'kurtosis')
+    )
+    signal_data['ppgSQI'] = ppgSQI
+    signal_data['Best_Window_Start'] = s.start_sig
+    signal_data['Best_Window_End'] = signal.end_sig
+    signal_data['Best_Window_Score'] = best_score if use_best_window else np.nan
+
+    ppg_onsets = fp.get_fp().get('on').values
+    ppg_peaks = fp.get_fp().get('sp').values
+    upg_onsets = fp.get_fp().get('u').values
+
+    for prefix, stats in (("gauss", gauss_stats), ("skewed", skew_stats),
+                          ("vpg", vpg_stats), ("ppg", ppg_stats)):
+        if stats is not None:
+            signal_data.update({f"{prefix}_{col}_{stat}": stats.loc[stat, col]
+                                for col in stats.columns for stat in stats.index})
 
     # Save data
     fp_new = Fiducials(fp=fp.get_fp() + s.start_sig)
     custom_save.save_data(savingformat=savingformat, savingfolder=savingfolder,s=s, fp=fp_new, bm=bm, gauss=gauss, gauss_stats=gauss_stats, gauss_additional=gauss_additional, skewed=skew, skewed_stats=skew_stats, vpg=vpg_features, vpg_stats=vpg_stats, ppg_extra=ppg_features, ppg_extra_stats=ppg_stats)
+    return signal_data, ppg_onsets, ppg_peaks, upg_onsets
 
-def get_pulses(s, fp):
+
+def find_best_window_by_sqi(
+        signal,
+        fs,
+        best_window_sec=30.0,
+        step_sec=1.0,
+        min_beats_in_window=15,
+        min_valid_sqi_fraction=0.5,
+        min_mean_sqi=0.86,  # https://pubmed.ncbi.nlm.nih.gov/25069129/
+):
+    """Rank windows using beat SQI calculated on the full preprocessed signal.
+
+    Return start and end sample indices and the winning score. The score is
+    the mean of the valid beat SQIs minus 0.05 times their standard deviation.
+    """
+    window_samples = int(round(best_window_sec * fs))
+    step_samples = max(1, int(round(step_sec * fs)))
+    if window_samples < 1 or window_samples > len(signal.v):
+        raise ValueError("The requested SQI window must be at least one sample and fit within the signal")
+
+    s_full = PPG(s=signal)
+    fiducials = FP.FpCollection(s=s_full).get_fiducials(s=s_full)
+    peaks = fiducials["sp"].dropna().to_numpy(dtype=int)
+    if len(peaks) < 2:
+        raise RuntimeError("Not enough systolic peaks found to compute SQI")
+
+    beat_sqi = np.asarray(SQI.get_ppgSQI(ppg=s_full.ppg, fs=s_full.fs, annotation=peaks), dtype=float)
+    beat_starts = peaks[:-1]
+    best_start = None
+    best_score = -np.inf
+    for start in range(0, len(signal.v) - window_samples + 1, step_samples):
+        end = start + window_samples
+        scores = beat_sqi[(beat_starts >= start) & (beat_starts < end)]
+        if len(scores) < min_beats_in_window:
+            continue
+        valid_scores = scores[np.isfinite(scores)]
+        if not len(valid_scores) or len(valid_scores) / len(scores) < min_valid_sqi_fraction:
+            continue
+        mean_sqi = float(np.mean(valid_scores))
+        if mean_sqi < min_mean_sqi:
+            continue
+        score = float(mean_sqi - 0.05 * np.std(valid_scores))
+        if score > best_score:
+            best_start = start
+            best_score = score
+
+    if best_start is None:
+        raise RuntimeError("No SQI window meets the minimum beat count, valid fraction and mean SQI")
+
+    return best_start, best_start + window_samples, best_score
+
+
+def get_pulses(s, fp, fs=None):
     '''
     Splits the signal into arrays of individual pulses.
 
     :param s: PPG object containing the signal data
     :param fp: Fiducials object containing the fiducial points data
+    :param fs: Sampling frequency in Hz to screen pulse lengths, or None to keep all pulses
     :return: 4 arrays of individual pulses (as arrays) - PPG, VPG, APG, and JPG
     '''
     onsets = fp.get_fp().on[1:]
@@ -139,7 +257,18 @@ def get_pulses(s, fp):
     vpgPulses = np.split(s.vpg, onsets)
     apgPulses = np.split(s.apg, onsets)
     jpgPulses = np.split(s.jpg, onsets)
+    if fs is not None:
+        # Keep pulse lengths from 0.40 to 1.80 seconds.
+        min_len = int(0.40 * fs)   # 0.40s
+        max_len = int(1.80 * fs)   # 1.80s
+        keep = [min_len <= len(p) <= max_len for p in ppgPulses]
+
+        ppgPulses = [p for p, k in zip(ppgPulses, keep) if k]
+        vpgPulses = [p for p, k in zip(vpgPulses, keep) if k]
+        apgPulses = [p for p, k in zip(apgPulses, keep) if k]
+        jpgPulses = [p for p, k in zip(jpgPulses, keep) if k]
     return ppgPulses, vpgPulses, apgPulses, jpgPulses
+
 
 def make_positive(pulse):
     '''
@@ -200,13 +329,17 @@ def get_gaussians(ppgPulses, live_plot=False, g_values=[0.9, 0.2, 0.01, 2/3, 0.4
             "sd4": []}
 
     for pulse in ppgPulses:
-        # Pre-process pulse
-        pulse = make_positive(pulse)
-        pulse = linear_correction(pulse)
-        pulse = normalise_amplitude(pulse)
-
-        # Add parameters to dictionary
-        gauss_array = gaussian.find_gaussians(pulse, g_values)
+        pulse = np.asarray(pulse, dtype=np.float64)
+        gauss_array = [np.nan] * 12
+        if len(pulse) >= 20 and np.isfinite(pulse).all():
+            pulse = linear_correction(make_positive(pulse))
+            amplitude = np.max(pulse)
+            if np.isfinite(amplitude) and amplitude >= 1e-8:
+                pulse = normalise_amplitude(pulse)
+                try:
+                    gauss_array = gaussian.find_gaussians(pulse, g_values)
+                except Exception as exc:
+                    print(f"Gaussian fitting failed for a pulse: {exc}. Filling with NaN.")
         dict['a1'].append(gauss_array[0])
         dict['m1'].append(gauss_array[1])
         dict['sd1'].append(gauss_array[2])
@@ -345,12 +478,17 @@ def get_skewed(ppgPulses, live_plot=False, initials=[0.08, 0.2, 1/8, 1, 0.04, 0.
             "shape4": []}
 
     for pulse in ppgPulses:
-        # Pre-process pulse
-        pulse = make_positive(pulse)
-        pulse = linear_correction(pulse)
-        pulse = normalise_amplitude(pulse)
-        # Add parameters to dictionary
-        skewed_array = skewed.fit(pulse, initials)
+        pulse = np.array(pulse, dtype=float)
+        skewed_array = [np.nan] * 16
+        if len(pulse) >= 20 and np.isfinite(pulse).all():
+            pulse = linear_correction(make_positive(pulse))
+            amplitude = np.max(pulse)
+            if np.isfinite(amplitude) and amplitude >= 1e-8:
+                pulse = normalise_amplitude(pulse)
+                try:
+                    skewed_array = skewed.fit(pulse, initials)
+                except Exception as exc:
+                    print(f"Skewed Gaussian fitting failed for a pulse: {exc}. Filling with NaN.")
         dict['a1'].append(skewed_array[0])
         dict['loc1'].append(skewed_array[1])
         dict['scale1'].append(skewed_array[2])
@@ -393,6 +531,35 @@ def get_skewed(ppgPulses, live_plot=False, initials=[0.08, 0.2, 1/8, 1, 0.04, 0.
     skew = pd.DataFrame(dict)
     skew = skew.rename_axis("Pulse")
     return skew
+
+
+def flatten_biomarker_stats(bm_stats, stats_to_extract=('mean', 'std')):
+    signal_data = {}
+
+    for _, df in bm_stats.items():
+        for stat in stats_to_extract:
+            if stat in df.index:
+                stat_row = df.loc[stat]
+                for metric_name, value in stat_row.items():
+                    signal_data[f"{metric_name}_{stat}"] = value
+
+        if 'mean' in df.index and 'std' in df.index:
+            for metric_name in df.columns:
+                mean_val = df.loc['mean', metric_name]
+                std_val = df.loc['std', metric_name]
+
+                if (
+                    pd.notna(mean_val)
+                    and pd.notna(std_val)
+                    and mean_val != 0
+                    and np.isfinite(mean_val)
+                ):
+                    signal_data[f"{metric_name}_CV"] = std_val / mean_val
+                else:
+                    signal_data[f"{metric_name}_CV"] = np.nan
+
+    return signal_data
+
 
 def skewed_stats(skew):
     '''

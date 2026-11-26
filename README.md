@@ -30,7 +30,15 @@ This program contains all the features of pyPPG with the following additional on
 ## Usage
 To use the program, download the source code, [create a Python virtual environment and install packages from requirements.txt with pip](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/). Then, with venv activated, run \_\_main\_\_.py with the Python interpreter. 
 
+## Python processing options
+
+Call `process_signal()` with `use_best_window=True` to select a subwindow by beat SQI before extracting features. The search raises an error when no window meets the configured length and quality criteria. `screen_pulse_lengths=True` limits pulse-level features and fits to pulses from 0.40 to 1.80 seconds. The interactive launcher keeps the full requested range and its original pulse selection.
+
+Use `apply_filter=False` for input that is already filtered. The function saves its usual CSV and/or MAT outputs and returns a feature dictionary and three fiducial arrays (PPG onsets, systolic peaks and first-derivative fiducials).
+
 ## Additional notes
+Original toolbox by Martin Kuberski. Edited by Kacper Sikorski for the PhysioCGM adaptations.
+
 This program was made for the 2025 Insignio/BRC summer placement at the University of Sheffield.
 
 Special thanks to the authors of the following articles, upon which this work was based:
